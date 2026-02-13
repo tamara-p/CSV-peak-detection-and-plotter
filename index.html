@@ -2,101 +2,275 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Peak Row Extractor & Scatter</title>
+  <title>Peak Row Extractor & Visualizer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Client-side libs from CDN (no server needed) -->
+  <!-- Client-side libs -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1rem; }
-    .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-    .panel { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; margin: 0.75rem 0; }
-    label { font-weight: 600; }
-    input[type="number"] { width: 8rem; }
-    select { max-width: 20rem; }
-    #qcPlot, #scatterPlot { width: 100%; height: 520px; }
-    .hint { color: #555; font-size: 0.9rem; }
-    .spacer { flex: 1 1 auto; }
-    button { cursor: pointer; }
+    :root{
+      --bg:#ffffff; --fg:#111827; --muted:#6b7280; --panel:#fff; --border:#e5e7eb;
+      --accent:#2a6fd5; --accent-2:#4a90e2;
+      --radius:10px;
+      --gap:12px; --gap-lg:16px;
+    }
+    body{
+      background:var(--bg); color:var(--fg);
+      font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 16px;
+    }
+    h1{ font-size: 1.45rem; margin: 0 0 8px 0; }
+    h3{ font-size: 1.05rem; margin: 0 0 8px 0; }
+
+    .row{ display:flex; gap:var(--gap); flex-wrap:wrap; align-items:center; }
+    .col{ display:flex; flex-direction:column; gap:6px; }
+
+    .panel{
+      border:1px solid var(--border);
+      background:var(--panel);
+      padding:16px;
+      border-radius:var(--radius);
+      margin: 12px 0;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.02);
+    }
+
+    label{ font-weight:600; font-size: 0.92rem; }
+    .hint{ color:var(--muted); font-size:0.9rem; }
+    .spacer{ flex:1 1 auto; }
+
+    select, input[type="number"], input[type="file"]{
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:8px 10px;
+      font-size:0.95rem;
+      background:#fff;
+      min-width: 160px;
+    }
+    input[type="number"]{ width: 7rem; }
+    button{
+      background:var(--accent);
+      color:#fff; border:none; border-radius:8px;
+      padding:8px 12px; cursor:pointer; font-weight:600;
+    }
+    button.secondary{
+      background:#f3f4f6; color:#111827; border:1px solid var(--border);
+    }
+    button:disabled{ opacity:0.6; cursor:not-allowed; }
+
+    #qcPlot, #scatterPlot{ width:100%; height:520px; }
+
+    /* Field groups with stacked label over control for tidiness */
+    .field{ display:flex; flex-direction:column; gap:6px; min-width: 180px; }
+    .field.inline{ flex-direction:row; align-items:center; gap:6px; }
+    .field-sm select, .field-sm input{ min-width: 120px; }
+
+    /* Compact two-tier control rows */
+    .controls-grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px 16px;
+      align-items: end;
+    }
+
+    /* Put the radio buttons in a neat chip row */
+    .chips{ display:flex; gap:10px; align-items:center; }
+    .chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px;
+           border:1px solid var(--border); border-radius:999px; background:#fff; }
+    .chip input{ transform: scale(1.1); }
+
+    /* Hide manual bin controls (they're auto now) */
+    #densityOpts label[for="xbins"], #densityOpts #xbins,
+    #densityOpts label[for="ybins"], #densityOpts #ybins{ display:none !important; }
+
+    /* Section header row with action on the right */
+    .section-head{
+      display:flex; align-items:center; gap:12px; margin-bottom:8px;
+    }
   </style>
 </head>
 <body>
-  <h1>Peak Row Extractor & Scatter</h1>
+  <h1>Peak Row Extractor & Visualizer</h1>
 
-  <!-- Load CSV -->
+  <!-- Top actions: load CSV + Download peaks -->
   <div class="panel">
     <div class="row">
-      <label for="file">Load CSV:</label>
-      <input id="file" type="file" accept=".csv,text/csv" />
-      <span id="status"></span>
+      <div class="field">
+        <label for="file">Load CSV</label>
+        <input id="file" type="file" accept=".csv,text/csv" />
+      </div>
+
       <div class="spacer"></div>
-      <span class="hint">All processing happens in your browser. No data leaves your device.</span>
+
+      <button id="downloadPeaks" title="Download detected peak rows as CSV" disabled>
+        Download peak rows (CSV)
+      </button>
+    </div>
+    <div class="row">
+      <span id="status" class="hint"></span>
+      <div class="spacer"></div>
+      <span class="hint">All processing stays in your browser.</span>
     </div>
   </div>
 
-  <!-- Peak detection controls -->
+  <!-- Peak detection controls (index-only) -->
   <div class="panel">
-    <div class="row">
-      <label for="peakSourceCol">Peak source column:</label>
-      <select id="peakSourceCol"></select>
-
-      <label for="prom">Prominence:</label>
-      <input id="prom" type="number" step="any" value="280" />
-      <button id="autoProm">Auto</button>
-
-      <label for="distRows">Min distance (rows):</label>
-      <input id="distRows" type="number" step="1" value="25" />
-
-      <label for="smoothWin">Smooth (window, odd; 0=off):</label>
-      <input id="smoothWin" type="number" step="1" value="9" />
+    <div class="section-head">
+      <h3>Detect peaks</h3>
+      <div class="spacer"></div>
+      <span id="info" class="hint"></span>
     </div>
 
-    <div class="row">
-      <label for="xSepCol">X column for separation (optional):</label>
-      <select id="xSepCol"></select>
+    <div class="controls-grid">
+      <div class="field">
+        <label for="peakSourceCol">Peak source column</label>
+        <select id="peakSourceCol"></select>
+      </div>
 
-      <label for="xMinSep">Min separation (X units):</label>
-      <input id="xMinSep" type="number" step="any" value="1" />
-      <span class="hint">(If set, peaks must be ≥ this far apart along the chosen X column.)</span>
+      <div class="field">
+        <label for="prom">Prominence</label>
+        <div class="row">
+          <input id="prom" type="number" step="any" value="280" />
+          <button id="autoProm" class="secondary" title="Autoguess from data">Auto</button>
+        </div>
+      </div>
 
-      <button id="run">Detect Peaks</button>
-      <span id="info"></span>
+      <div class="field">
+        <label for="distRows">Min distance (rows)</label>
+        <input id="distRows" type="number" step="1" value="15" />
+      </div>
+
+      <div class="field">
+        <label for="smoothWin">Smooth window (odd; 0=off)</label>
+        <input id="smoothWin" type="number" step="1" value="0" />
+      </div>
+
+      <div class="field">
+        <label>&nbsp;</label>
+        <button id="run" title="Run peak detection">Detect Peaks</button>
+      </div>
     </div>
   </div>
 
   <!-- QC plot (full signal + detected peaks) -->
   <div class="panel">
-    <h3>QC view: Signal with detected peaks</h3>
-    <div class="row">
-      <label for="qcXCol">QC X axis:</label>
-      <select id="qcXCol"></select>
-      <span class="hint">Pick your “time”/index column for the QC plot. If none, leave as Index.</span>
+    <div class="section-head">
+      <h3>QC: Signal with detected peaks</h3>
     </div>
+
+    <div class="controls-grid">
+      <div class="field">
+        <label for="qcXCol">QC X axis</label>
+        <select id="qcXCol"></select>
+      </div>
+
+      <!-- Scale pickers grouped beneath their channel pickers -->
+      <div class="field">
+        <label for="qcXScale">X scale</label>
+        <select id="qcXScale">
+          <option value="linear" selected>Linear</option>
+          <option value="log10">Log10</option>
+          <option value="logicle">Logicle (arcsinh)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="qcYScale">Y scale</label>
+        <select id="qcYScale">
+          <option value="linear" selected>Linear</option>
+          <option value="log10">Log10</option>
+          <option value="logicle">Logicle (arcsinh)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="qcCofactor" class="hint">Cofactor (logicle)</label>
+        <input id="qcCofactor" type="number" step="any" placeholder="auto" />
+      </div>
+    </div>
+
+    <div class="row"><span class="hint">Default X: Index (row #). Changing scale only affects representation (except logicle transform).</span></div>
     <div id="qcPlot"></div>
   </div>
 
-  <!-- Scatter plot of peak rows -->
+  <!-- Peak rows visualization -->
   <div class="panel">
-    <div class="row">
-      <label for="xCol">Scatter X axis:</label>
-      <select id="xCol"></select>
-
-      <label for="yCol">Scatter Y axis:</label>
-      <select id="yCol"></select>
-
-      <button id="plotBtn">Plot Scatter of Peak Rows</button>
-      <span id="scatterInfo"></span>
+    <div class="section-head">
+      <h3>Peak rows visualization</h3>
+      <div class="spacer"></div>
+      <div class="chips">
+        <span class="chip"><input type="radio" name="mode" value="scatter" id="modeScatter" checked><label for="modeScatter">Scatter</label></span>
+        <span class="chip"><input type="radio" name="mode" value="scatter-density" id="modeScatterDensity"><label for="modeScatterDensity">Scatter (density colors)</label></span>
+      </div>
     </div>
+
+    <!-- Channels with scales placed directly underneath -->
+    <div class="controls-grid">
+      <div class="field">
+        <label for="xCol">X axis</label>
+        <select id="xCol"></select>
+      </div>
+      <div class="field">
+        <label for="xScale">X scale</label>
+        <select id="xScale">
+          <option value="linear" selected>Linear</option>
+          <option value="log10">Log10</option>
+          <option value="logicle">Logicle (arcsinh)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="yCol">Y axis</label>
+        <select id="yCol"></select>
+      </div>
+      <div class="field">
+        <label for="yScale">Y scale</label>
+        <select id="yScale">
+          <option value="linear" selected>Linear</option>
+          <option value="log10">Log10</option>
+          <option value="logicle">Logicle (arcsinh)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="cofactor" class="hint">Cofactor (logicle)</label>
+        <input id="cofactor" type="number" step="any" placeholder="auto" />
+      </div>
+
+      <div class="field">
+        <label for="markerSize">Marker size</label>
+        <input id="markerSize" type="number" min="2" max="20" step="1" value="7" />
+      </div>
+
+      <div class="field">
+        <label for="markerAlpha">Opacity</label>
+        <input id="markerAlpha" type="number" min="0.05" max="1" step="0.05" value="0.9" />
+      </div>
+
+      <div class="field">
+        <label for="colorscale">Colorscale (density)</label>
+        <select id="colorscale">
+          <option value="Viridis" selected>Viridis</option>
+          <option value="Plasma">Plasma</option>
+          <option value="Cividis">Cividis</option>
+          <option value="Turbo">Turbo</option>
+          <option value="Hot">Hot</option>
+          <option value="Greys">Greys</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>&nbsp;</label>
+        <button id="plotBtn">Plot Peak Rows</button>
+      </div>
+    </div>
+
+    <div class="row"><span id="scatterInfo" class="hint"></span></div>
     <div id="scatterPlot"></div>
   </div>
 
-  <!-- Export -->
-  <div class="panel">
-    <button id="downloadPeaks">Download peak rows (CSV)</button>
-  </div>
-
+  <!-- Load app -->
   <script src="script.js"></script>
 </body>
 </html>
