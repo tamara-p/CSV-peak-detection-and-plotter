@@ -2,28 +2,31 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Peak Row Extractor & Scatter</title>
+  <title>Peak Row Extractor & Visualizer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Client-side libs from CDN (no server needed) -->
+  <!-- Client-side libs -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1rem; }
+    /* Light mode */
+    body { background: #ffffff; color: #111827; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1rem; }
     .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-    .panel { border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; margin: 0.75rem 0; }
+    .panel { border: 1px solid #e5e7eb; background: #fff; padding: 1rem; border-radius: 8px; margin: 0.75rem 0; box-shadow: 0 0 0 2px rgba(0,0,0,0.02); }
     label { font-weight: 600; }
-    input[type="number"] { width: 8rem; }
-    select { max-width: 20rem; }
+    input[type="number"] { width: 7rem; }
+    select { max-width: 22rem; }
     #qcPlot, #scatterPlot { width: 100%; height: 520px; }
-    .hint { color: #555; font-size: 0.9rem; }
+    .hint { color: #6b7280; font-size: 0.9rem; }
     .spacer { flex: 1 1 auto; }
     button { cursor: pointer; }
+    .inline { display: inline-flex; gap: 0.5rem; align-items: center; }
+    .group { display: grid; grid-auto-flow: column; grid-auto-columns: max-content; gap: 0.75rem; }
   </style>
 </head>
 <body>
-  <h1>Peak Row Extractor & Scatter</h1>
+  <h1>Peak Row Extractor & Visualizer</h1>
 
   <!-- Load CSV -->
   <div class="panel">
@@ -32,11 +35,11 @@
       <input id="file" type="file" accept=".csv,text/csv" />
       <span id="status"></span>
       <div class="spacer"></div>
-      <span class="hint">All processing happens in your browser. No data leaves your device.</span>
+      <span class="hint">All processing stays in your browser.</span>
     </div>
   </div>
 
-  <!-- Peak detection controls -->
+  <!-- Peak detection controls (index-only) -->
   <div class="panel">
     <div class="row">
       <label for="peakSourceCol">Peak source column:</label>
@@ -51,15 +54,6 @@
 
       <label for="smoothWin">Smooth (window, odd; 0=off):</label>
       <input id="smoothWin" type="number" step="1" value="9" />
-    </div>
-
-    <div class="row">
-      <label for="xSepCol">X column for separation (optional):</label>
-      <select id="xSepCol"></select>
-
-      <label for="xMinSep">Min separation (X units):</label>
-      <input id="xMinSep" type="number" step="any" value="1" />
-      <span class="hint">(If set, peaks must be ≥ this far apart along the chosen X column.)</span>
 
       <button id="run">Detect Peaks</button>
       <span id="info"></span>
@@ -72,23 +66,100 @@
     <div class="row">
       <label for="qcXCol">QC X axis:</label>
       <select id="qcXCol"></select>
-      <span class="hint">Pick your “time”/index column for the QC plot. If none, leave as Index.</span>
+
+      <div class="group">
+        <span class="inline">
+          <label for="qcXScale">X scale:</label>
+          <select id="qcXScale">
+            <option value="linear" selected>Linear</option>
+            <option value="log10">Log10</option>
+            <option value="logicle">Logicle (arcsinh)</option>
+          </select>
+        </span>
+        <span class="inline">
+          <label for="qcYScale">Y scale:</label>
+          <select id="qcYScale">
+            <option value="linear" selected>Linear</option>
+            <option value="log10">Log10</option>
+            <option value="logicle">Logicle (arcsinh)</option>
+          </select>
+        </span>
+        <span class="inline">
+          <label for="qcCofactor" class="hint">Cofactor (logicle):</label>
+          <input id="qcCofactor" type="number" step="any" placeholder="auto" style="width:6rem" />
+        </span>
+      </div>
+
+      <span class="hint">Default X: Index (row #). Changing scale only changes representation; raw values are kept (except logicle).</span>
     </div>
     <div id="qcPlot"></div>
   </div>
 
-  <!-- Scatter plot of peak rows -->
+  <!-- Peak rows visualization -->
   <div class="panel">
+    <h3>Peak rows visualization</h3>
     <div class="row">
-      <label for="xCol">Scatter X axis:</label>
+      <label>Render as:</label>
+      <label class="inline"><input type="radio" name="mode" value="scatter" checked> Scatter</label>
+      <label class="inline"><input type="radio" name="mode" value="scatter-density"> Scatter (density colors)</label>
+      <!-- Heatmap option removed -->
+    </div>
+
+    <div class="row">
+      <label for="xCol">X axis:</label>
       <select id="xCol"></select>
 
-      <label for="yCol">Scatter Y axis:</label>
+      <label for="xScale">X scale:</label>
+      <select id="xScale">
+        <option value="linear" selected>Linear</option>
+        <option value="log10">Log10</option>
+        <option value="logicle">Logicle (arcsinh)</option>
+      </select>
+
+      <label for="yCol">Y axis:</label>
       <select id="yCol"></select>
 
-      <button id="plotBtn">Plot Scatter of Peak Rows</button>
+      <label for="yScale">Y scale:</label>
+      <select id="yScale">
+        <option value="linear" selected>Linear</option>
+        <option value="log10">Log10</option>
+        <option value="logicle">Logicle (arcsinh)</option>
+      </select>
+
+      <label for="cofactor" class="hint">Cofactor (logicle):</label>
+      <input id="cofactor" type="number" step="any" placeholder="auto" style="width:6rem" />
+    </div>
+
+    <!-- Scatter-only options -->
+    <div class="row" id="scatterOpts">
+      <label for="markerSize">Marker size:</label>
+      <input id="markerSize" type="number" min="2" max="20" step="1" value="7" />
+      <label for="markerAlpha">Opacity:</label>
+      <input id="markerAlpha" type="number" min="0.05" max="1" step="0.05" value="0.9" />
+    </div>
+
+    <!-- Density-only options -->
+    <div class="row" id="densityOpts" style="display:none">
+      <label for="xbins">X bins:</label>
+      <input id="xbins" type="number" min="5" max="500" step="1" value="60" />
+      <label for="ybins">Y bins:</label>
+      <input id="ybins" type="number" min="5" max="500" step="1" value="60" />
+      <label for="colorscale">Colors:</label>
+      <select id="colorscale">
+        <option value="Viridis" selected>Viridis</option>
+        <option value="Plasma">Plasma</option>
+        <option value="Cividis">Cividis</option>
+        <option value="Turbo">Turbo</option>
+        <option value="Hot">Hot</option>
+        <option value="Greys">Greys</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <button id="plotBtn">Plot Peak Rows</button>
       <span id="scatterInfo"></span>
     </div>
+
     <div id="scatterPlot"></div>
   </div>
 
@@ -97,6 +168,7 @@
     <button id="downloadPeaks">Download peak rows (CSV)</button>
   </div>
 
+  <!-- Load our app last -->
   <script src="script.js"></script>
 </body>
 </html>
